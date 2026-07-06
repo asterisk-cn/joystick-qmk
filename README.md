@@ -12,7 +12,7 @@
 
 ### ローカルビルド
 ```bash
-qmk compile -kb handwired/joystick_controller -km default
+qmk compile -kb joystick -km default
 ```
 
 ## 書き込み

@@ -19,13 +19,13 @@ jobs:
         run: qmk setup -y
 
       - name: Copy keyboard files
-        run: cp -r keyboards/handwired/joystick_controller ~/qmk_firmware/keyboards/handwired/joystick_controller
+        run: cp -r keyboards/joystick ~/qmk_firmware/keyboards/joystick
 
       - name: Build firmware
-        run: cd ~/qmk_firmware && qmk compile -kb handwired/joystick_controller -km default
+        run: cd ~/qmk_firmware && qmk compile -kb joystick -km default
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
         with:
-          name: joystick_controller_firmware
+          name: joystick_firmware
           path: ~/qmk_firmware/*.uf2
