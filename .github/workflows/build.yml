@@ -29,3 +29,4 @@ jobs:
         with:
           name: joystick_firmware
           path: /tmp/qmk_firmware/*.uf2
+          if-no-files-found: error
