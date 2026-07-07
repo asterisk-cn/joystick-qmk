@@ -16,13 +16,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Setup QMK
-        run: qmk setup -y　-H /tmp/qmk_firmware
+        run: qmk setup -y -H /tmp/qmk_firmware
 
       - name: Copy keyboard files
         run: cp -r keyboards/joystick /tmp/qmk_firmware/keyboards/joystick
 
       - name: Build firmware
-        run: cd /tmp/qmk_firmware && qmk compile -kb joystick -km default　-H /tmp/qmk_firmware
+        run: cd /tmp/qmk_firmware && qmk compile -kb joystick -km default
 
       - name: Upload firmware
         uses: actions/upload-artifact@v4
