@@ -1,7 +1,6 @@
 {
     "keyboard_name": "Joystick Controller",
     "manufacturer": "Handwired",
-    "url": "",
     "maintainer": "asterisk-cn",
     "processor": "RP2040",
     "bootloader": "rp2040",
