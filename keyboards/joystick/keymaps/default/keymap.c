@@ -61,17 +61,17 @@ static int16_t scale_axis(int16_t raw, int16_t low, int16_t rest, int16_t high) 
 }
 
 static void send_raw_report(int16_t raw_x, int16_t raw_y, int16_t out_x, int16_t out_y) {
-    uint8_t buf[RAW_EPSIZE] = {0};
+    uint8_t buf[32] = {0};
     buf[0] = CMD_GET_RAW;
     buf[1] = raw_x >> 8;  buf[2] = raw_x & 0xFF;
     buf[3] = raw_y >> 8;  buf[4] = raw_y & 0xFF;
     buf[5] = out_x >> 8;  buf[6] = out_x & 0xFF;
     buf[7] = out_y >> 8;  buf[8] = out_y & 0xFF;
-    raw_hid_send(buf, RAW_EPSIZE);
+    raw_hid_send(buf, sizeof(buf));
 }
 
 static void send_cal_report(void) {
-    uint8_t buf[RAW_EPSIZE] = {0};
+    uint8_t buf[32] = {0};
     buf[0]  = CMD_GET_CAL;
     buf[1]  = cal.x_low >> 8;    buf[2]  = cal.x_low & 0xFF;
     buf[3]  = cal.x_rest >> 8;   buf[4]  = cal.x_rest & 0xFF;
@@ -80,7 +80,7 @@ static void send_cal_report(void) {
     buf[9]  = cal.y_rest >> 8;   buf[10] = cal.y_rest & 0xFF;
     buf[11] = cal.y_high >> 8;   buf[12] = cal.y_high & 0xFF;
     buf[13] = cal.deadzone >> 8;  buf[14] = cal.deadzone & 0xFF;
-    raw_hid_send(buf, RAW_EPSIZE);
+    raw_hid_send(buf, sizeof(buf));
 }
 
 void eeconfig_init_user(void) {
@@ -89,11 +89,11 @@ void eeconfig_init_user(void) {
         DEFAULT_Y_LOW, DEFAULT_Y_REST, DEFAULT_Y_HIGH,
         DEFAULT_DEADZONE,
     };
-    eeconfig_update_user_datablock(&cal);
+    eeconfig_update_user_datablock(&cal, 0, sizeof(cal));
 }
 
 void keyboard_post_init_user(void) {
-    eeconfig_read_user_datablock(&cal);
+    eeconfig_read_user_datablock(&cal, 0, sizeof(cal));
     if (cal.x_high <= cal.x_rest || cal.x_rest <= cal.x_low ||
         cal.y_high <= cal.y_rest || cal.y_rest <= cal.y_low ||
         cal.deadzone < 0 || cal.deadzone > 500) {
@@ -125,11 +125,11 @@ void raw_hid_receive(uint8_t *data, uint8_t length) {
             send_cal_report();
             break;
         case CMD_SAVE_CAL: {
-            eeconfig_update_user_datablock(&cal);
-            uint8_t buf[RAW_EPSIZE] = {0};
+            eeconfig_update_user_datablock(&cal, 0, sizeof(cal));
+            uint8_t buf[32] = {0};
             buf[0] = CMD_SAVE_CAL;
             buf[1] = 0x01;
-            raw_hid_send(buf, RAW_EPSIZE);
+            raw_hid_send(buf, sizeof(buf));
             break;
         }
         case CMD_STREAM:
