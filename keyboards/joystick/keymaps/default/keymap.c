@@ -145,7 +145,7 @@ void housekeeping_task_user(void) {
     int16_t out_y = scale_axis(raw_y, cal.y_low, cal.y_rest, cal.y_high);
 
     joystick_set_axis(0, out_x);
-    joystick_set_axis(1, -out_y);
+    joystick_set_axis(1, out_y);
 
     if (streaming) {
         static uint16_t last_stream = 0;

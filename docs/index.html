@@ -282,7 +282,7 @@ function render() {
   }
 
   // crosshair
-  const px = cx+(outX/511)*r, py = cy-(outY/511)*r;
+  const px = cx+(outX/511)*r, py = cy+(outY/511)*r;
   ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = dpr;
   ctx.beginPath(); ctx.moveTo(px, cy-r); ctx.lineTo(px, cy+r); ctx.stroke();
   ctx.beginPath(); ctx.moveTo(cx-r, py); ctx.lineTo(cx+r, py); ctx.stroke();
