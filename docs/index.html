@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Calibrator</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#101014;--card:#18181e;--border:#28283a;
+  --text:#b0b0b8;--dim:#58586e;--accent:#8090a0;--accent-dim:rgba(128,144,160,.1);
+  --red:#c05058;
+  --mono:'SF Mono',ui-monospace,Menlo,Consolas,monospace;
+}
+body{font-family:var(--mono);background:var(--bg);color:var(--text);padding:1.5rem 1rem;min-height:100vh}
+.container{max-width:420px;margin:0 auto}
+
+header{margin-bottom:1.25rem}
+header h1{font-size:.85rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:var(--text)}
+.connect-row{margin-bottom:1rem}
+
+button{
+  font-family:var(--mono);font-size:.7rem;padding:.45rem .9rem;letter-spacing:.03em;
+  border:1px solid var(--border);border-radius:4px;
+  background:transparent;color:var(--text);cursor:pointer;transition:all .15s;
+}
+button:hover:not(:disabled){border-color:var(--accent);color:var(--accent)}
+button:active:not(:disabled){background:var(--accent-dim)}
+button:disabled{opacity:.25;cursor:not-allowed}
+button.primary{border-color:var(--accent);color:var(--accent)}
+button.primary:hover:not(:disabled){background:var(--accent);color:var(--bg)}
+button.danger{border-color:var(--red);color:var(--red)}
+button.danger:hover:not(:disabled){background:rgba(192,80,88,.1)}
+
+.card{background:var(--card);border:1px solid var(--border);border-radius:6px;padding:1rem;margin-bottom:.75rem}
+
+canvas{display:block;width:100%;aspect-ratio:1;border-radius:4px;margin-bottom:.5rem}
+.raw{font-size:.8rem;color:var(--dim);letter-spacing:.02em}
+.raw span{color:var(--text);font-weight:600;display:inline-block;min-width:3.2em;text-align:right}
+
+.field{display:flex;align-items:center;gap:.6rem;margin-bottom:.6rem;font-size:.75rem}
+.field .label{color:var(--dim);white-space:nowrap;min-width:5em}
+.field .val{color:var(--text);font-weight:600}
+.field input[type=range]{flex:1;accent-color:var(--accent);height:2px}
+.field .num{min-width:2em;text-align:right}
+
+.btns{display:flex;gap:.4rem}
+.btns button{flex:1}
+
+.toast{
+  position:fixed;bottom:1.5rem;left:50%;transform:translateX(-50%);
+  font-family:var(--mono);font-size:.7rem;letter-spacing:.02em;
+  padding:.5rem 1rem;border-radius:4px;
+  opacity:0;transition:opacity .25s;pointer-events:none;z-index:99;
+}
+.toast.show{opacity:1}
+.toast.ok{background:var(--accent);color:var(--bg)}
+.toast.err{background:var(--red);color:#fff}
+
+#unsupported{text-align:center;padding:3rem 1rem;display:none}
+#unsupported h2{font-size:.85rem;margin-bottom:.5rem;color:var(--red)}
+#unsupported p{font-size:.75rem;color:var(--dim);line-height:1.6}
+</style>
+</head>
+<body>
+<div class="container">
+  <div id="unsupported">
+    <h2>WebHID 非対応</h2>
+    <p>Chrome / Edge（デスクトップ版）が必要です。<br>HTTPS または localhost でアクセスしてください。</p>
+  </div>
+
+  <div id="main">
+    <header><h1>Calibrator</h1></header>
+
+    <div class="connect-row">
+      <button class="primary" id="connectBtn">接続</button>
+    </div>
+
+    <div class="card" id="vizCard" style="display:none">
+      <canvas id="cv"></canvas>
+      <div class="raw">X<span id="rX">---</span> Y<span id="rY">---</span></div>
+    </div>
+
+    <div class="card" id="calCard" style="display:none">
+      <div class="field">
+        <span class="label">中心</span>
+        <span class="val">X <span id="cX">512</span>　Y <span id="cY">512</span></span>
+      </div>
+      <div class="field">
+        <span class="label">デッドゾーン</span>
+        <input type="range" id="dzSlider" min="0" max="150" value="25">
+        <span class="num" id="dzVal">25</span>
+      </div>
+
+      <div class="btns">
+        <button id="centerBtn" disabled>中心を設定</button>
+        <button id="saveBtn" class="primary" disabled>保存</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const CMD = { GET_RAW:1, GET_CAL:2, SET_CAL:3, SAVE_CAL:4, STREAM:5 };
+const VID = 0xFEED, PID = 0x1001;
+
+let device = null, connected = false;
+let rawX = 0, rawY = 0, outX = 0, outY = 0;
+let centerX = 512, centerY = 512;
+
+const $ = id => document.getElementById(id);
+
+if (!navigator.hid) {
+  $('unsupported').style.display = '';
+  $('main').style.display = 'none';
+}
+
+let toastT;
+function toast(msg, type) {
+  const el = $('toast');
+  el.textContent = msg;
+  el.className = 'toast show ' + type;
+  clearTimeout(toastT);
+  toastT = setTimeout(() => el.className = 'toast', 2000);
+}
+
+$('connectBtn').onclick = () => connected ? disconnect() : connect();
+
+async function connect() {
+  try {
+    const devs = await navigator.hid.requestDevice({
+      filters: [{ vendorId:VID, productId:PID }]
+    });
+    if (!devs.length) return;
+    device = devs[0];
+    if (!device.opened) await device.open();
+    console.log('collections:', device.collections.map(c =>
+      ({usagePage:c.usagePage, usage:c.usage, out:c.outputReports?.length})));
+    const hasRawHID = device.collections.some(c => c.usagePage === 0xFF60);
+    if (!hasRawHID) {
+      toast('Raw HID未検出 — ファームウェアを更新してください', 'err');
+      await device.close(); device = null;
+      return;
+    }
+    device.addEventListener('inputreport', onReport);
+    await send(CMD.GET_CAL);
+    await sendBytes(CMD.STREAM, [1]);
+    connected = true;
+    updateUI();
+  } catch(e) {
+    toast('接続失敗: ' + e.message, 'err');
+    console.error('connect error:', e);
+  }
+}
+
+async function disconnect() {
+  if (device) {
+    try { await sendBytes(CMD.STREAM, [0]); await device.close(); } catch(e) {}
+    device = null;
+  }
+  connected = false;
+  updateUI();
+}
+
+if (navigator.hid) {
+  navigator.hid.addEventListener('disconnect', e => {
+    if (e.device === device) {
+      device = null; connected = false;
+      updateUI(); toast('切断されました', 'err');
+    }
+  });
+}
+
+async function send(cmd) {
+  const d = new Uint8Array(32); d[0] = cmd;
+  await device.sendReport(0, d);
+}
+async function sendBytes(cmd, bytes) {
+  const d = new Uint8Array(32); d[0] = cmd;
+  bytes.forEach((b, i) => d[i+1] = b);
+  await device.sendReport(0, d);
+}
+
+function applyCal() {
+  if (!device) return;
+  const d = new Uint8Array(32); d[0] = CMD.SET_CAL;
+  const v = new DataView(d.buffer);
+  v.setUint16(1, 0, false);         // x_low
+  v.setUint16(3, centerX, false);    // x_rest
+  v.setUint16(5, 1023, false);       // x_high
+  v.setUint16(7, 0, false);          // y_low
+  v.setUint16(9, centerY, false);    // y_rest
+  v.setUint16(11, 1023, false);      // y_high
+  v.setUint16(13, +$('dzSlider').value, false);
+  return device.sendReport(0, d);
+}
+
+function onReport(e) {
+  const d = e.data, cmd = d.getUint8(0);
+  if (cmd === CMD.GET_RAW) {
+    rawX = d.getUint16(1, false);
+    rawY = d.getUint16(3, false);
+    outX = d.getInt16(5, false);
+    outY = d.getInt16(7, false);
+    $('rX').textContent = String(rawX).padStart(4, ' ');
+    $('rY').textContent = String(rawY).padStart(4, ' ');
+  } else if (cmd === CMD.GET_CAL) {
+    centerX = d.getUint16(3, false);
+    centerY = d.getUint16(9, false);
+    $('cX').textContent = centerX;
+    $('cY').textContent = centerY;
+    const dz = d.getUint16(13, false);
+    $('dzSlider').value = dz; $('dzVal').textContent = dz;
+  } else if (cmd === CMD.SAVE_CAL) {
+    toast('保存しました', 'ok');
+  }
+}
+
+$('centerBtn').onclick = async () => {
+  centerX = rawX; centerY = rawY;
+  $('cX').textContent = centerX;
+  $('cY').textContent = centerY;
+  await applyCal();
+  toast('中心を設定しました', 'ok');
+};
+
+$('dzSlider').oninput = function() { $('dzVal').textContent = this.value; };
+
+$('saveBtn').onclick = async () => {
+  if (!device) return;
+  await applyCal();
+  await send(CMD.SAVE_CAL);
+};
+
+function updateUI() {
+  const btn = $('connectBtn');
+  btn.textContent = connected ? '切断' : '接続';
+  btn.className = connected ? 'danger' : 'primary';
+  $('vizCard').style.display = connected ? '' : 'none';
+  $('calCard').style.display = connected ? '' : 'none';
+  $('centerBtn').disabled = !connected;
+  $('saveBtn').disabled = !connected;
+}
+
+// Canvas
+const cv = $('cv'), ctx = cv.getContext('2d');
+
+function render() {
+  const dpr = devicePixelRatio || 1;
+  const rect = cv.getBoundingClientRect();
+  const w = rect.width * dpr, h = rect.height * dpr;
+  if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+
+  const s = Math.min(w, h), cx = w/2, cy = h/2, r = s/2 - 20*dpr;
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#121218'; ctx.fillRect(0, 0, w, h);
+
+  // grid
+  ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = dpr;
+  for (let i = -4; i <= 4; i++) {
+    const off = (i/4)*r;
+    ctx.beginPath(); ctx.moveTo(cx+off, cy-r); ctx.lineTo(cx+off, cy+r); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(cx-r, cy+off); ctx.lineTo(cx+r, cy+off); ctx.stroke();
+  }
+  ctx.strokeStyle = 'rgba(255,255,255,.1)'; ctx.lineWidth = dpr;
+  ctx.beginPath(); ctx.moveTo(cx, cy-r); ctx.lineTo(cx, cy+r); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-r, cy); ctx.lineTo(cx+r, cy); ctx.stroke();
+
+  // boundary
+  ctx.strokeStyle = 'rgba(255,255,255,.15)'; ctx.lineWidth = 1.5*dpr;
+  ctx.strokeRect(cx-r, cy-r, r*2, r*2);
+
+  // deadzone
+  const dzR = (+$('dzSlider').value / 512) * r;
+  if (dzR > 1) {
+    ctx.beginPath(); ctx.arc(cx, cy, dzR, 0, Math.PI*2);
+    ctx.setLineDash([3*dpr, 3*dpr]);
+    ctx.strokeStyle = 'rgba(255,255,255,.12)'; ctx.lineWidth = dpr; ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // crosshair
+  const px = cx+(outX/511)*r, py = cy-(outY/511)*r;
+  ctx.strokeStyle = 'rgba(255,255,255,.08)'; ctx.lineWidth = dpr;
+  ctx.beginPath(); ctx.moveTo(px, cy-r); ctx.lineTo(px, cy+r); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(cx-r, py); ctx.lineTo(cx+r, py); ctx.stroke();
+
+  // dot
+  ctx.beginPath(); ctx.arc(px, py, 4*dpr, 0, Math.PI*2);
+  ctx.fillStyle = '#8090a0'; ctx.fill();
+
+  requestAnimationFrame(render);
+}
+requestAnimationFrame(render);
+</script>
+</body>
+</html>
